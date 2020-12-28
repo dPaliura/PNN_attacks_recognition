@@ -12,7 +12,7 @@ if __name__ == '__main__':
 
         n = int(train_set.shape[1]-1)
 
-        input("Press 'Enter to start'".format(n))
+        input("Press 'Enter to start'")
 
         train_set_in = train_set[:,0:n]
         train_set_out = train_set[:,n]
