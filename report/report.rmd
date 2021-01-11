@@ -1,0 +1,327 @@
+---
+title: "Cyber attacs recognition with PNN"
+author: "Daniel Paliura"
+date: "09 01 2021"
+output: pdf_document
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+### Introduction
+
+Cyber security is much more important nowadays, as we live in digital age. Different intrusions can take place on each computer. It can bring slight or harmful effects. Some defending program have to recognize specific attack action to protect machine. Data set **NLS-KDD** contains such connection signatures with expertly known classes of actions, whether it normal connection or specified attack.
+
+
+### Purpose
+
+To create PNN classifier based on KDD set, that available to recognize intrusions with same signature. To analyze PNN result and offer probable model improvements.
+
+
+### Data set
+
+Short [description of NLS-KDD](https://www.unb.ca/cic/datasets/nsl.html). 
+What is [KDD](http://kdd.ics.uci.edu/databases/kddcup99/kddcup99.html)?
+
+NLS-KDD contains 41 features for connection signature and one feature that describes expertly known class of connection. Class is name of cyber attack if connection is intrusion and "normal" if connection is safe. 
+NLS-KDD divided into train-test subsets.
+
+```{r read data}
+nl <- "\n"
+
+dat <- read.csv("../data/dataProcessing/dataSet/KDDTrain+.csv", header = FALSE)[,-43]
+train.size <- nrow(dat)
+kdd <- dat
+
+kdd.ncol <- ncol(kdd)
+
+dat <- read.csv("../data/dataProcessing/dataSet/KDDTest+.csv", header = FALSE)[,-43]
+test.size <- nrow(dat)
+
+names <- read.csv("../data/dataProcessing/dataSet/FieldNames.csv", header = FALSE)
+
+kdd <- rbind(kdd, dat)
+kdd.size <- train.size+test.size
+rm(dat)
+
+names(kdd) <- c(names[,1], "class")
+for (indx in c(which(names[,2]=="symbolic"), kdd.ncol)){
+	kdd[,indx] <- as.factor(kdd[,indx])
+}
+cat(paste0(
+  "Whole NLS-KDD has ", kdd.size, " records.",nl,
+  "Train set - ",train.size,"(",100*train.size/kdd.size,"%)","records.",nl,
+  "Test set - ",test.size,"(",100*test.size/kdd.size, "%)","records.",nl))
+
+```
+
+Summary of KDD in [Addition 1](#addition1):
+
+Pie charts describe how classes distributed in KDD, train and test sets:
+
+```{r KDD train and test pie charts, fig.height=4.4}
+# Takes factor f and returns named vector of
+# quantiles for each factor value.
+# with.other - if TRUE than not more than 
+# other.qt quantiles of the least frequent factors 
+# will be assigned as single value with name 'other'.
+# other.qt is value from 0 to 1.
+factor.to.quantiles <- function(f, with.other=FALSE, 
+								other.qt=0.1){
+	ch <- as.character(f)
+	names <- unique(ch)
+	vols <- NULL
+	for (name in names){
+		vols <- c(vols, sum(f==name))
+	}
+	size <- sum(vols)
+	
+	qts <- vols/size
+	names(qts) <- names
+	qts <- sort(qts, decreasing=TRUE)
+	
+	if (with.other){
+		main.qt <- 1 - other.qt
+		achieved.qt <- 0
+		qts.num <- length(qts)
+		for (i in 1:qts.num){
+			achieved.qt <- achieved.qt + qts[i]
+			if (achieved.qt >= main.qt){
+				break()
+			}
+		}
+		if (i < qts.num-1){
+			names <- c(names(qts[1:i]), "other")
+			qts <- c(qts[1:i], sum(qts[(i+1):qts.num]))
+			names(qts) <- names
+		}
+	}
+	return(qts)
+}
+
+kdd.quantiles <- factor.to.quantiles(kdd$class, with.other = TRUE)
+train.quantiles <- factor.to.quantiles(kdd$class[1:train.size],
+									   with.other = TRUE)
+test.quantiles <- factor.to.quantiles(kdd$class[(train.size+1):kdd.size],
+									  with.other = TRUE)
+
+pie(kdd.quantiles, main="Connection types in hole NLS KDD",
+	col = c("green", hcl.colors(length(kdd.quantiles)-1,
+								"RedOr")))
+
+pie(train.quantiles, main="Connection types in train set",
+	col = c("green", hcl.colors(length(train.quantiles)-1,
+								"RedOr")))
+
+pie(test.quantiles, main="Connection types in test set",
+	col = c("green", hcl.colors(length(test.quantiles)-1,
+								"RedOr")))
+
+```
+
+
+### About model
+
+I decided to try use probability neural network (PNN) as classifier for attacks recognition goal. PNN trains with teacher and returns name of the most probable class for according connection signature.
+It has one disadvantage: each trained example is associated with one neuron in it's pattern layer, so PNN is unstable for large data sets.
+
+As implementation of PNN I used [my model from other project](https://github.com/dPaliura/AI-labWorks/tree/master/lab2). It was written on **Python 3** language with library **Numpy**.
+As I tried it in one previous work, so I refer to existing [report of mentioned work](https://github.com/dPaliura/AI-labWorks/blob/master/lab3/reporting/report.pdf) to acquaint with structure of my PNN  (p. 7, paragraph 'PNN solution'). Also mentioned report contains description of encoding and normalization of data.
+
+I manipulated with train data set to reduce it's size so that PNN works faster rather than it worked on full set.
+I reduced set next way:
+
+* if number of records for some class less than 1000, then all records included.
+* if number of records greater than 1000, then included maximum number from quarter of its' amount and 1000.
+* amount of normal records - 3000
+* reduced set was shuffled.
+
+After such manipulations:
+
+```{r train set description}
+train <- read.csv("../data/input/KDDTrain_procsd_redcd.csv")
+train.rdcd.size <- nrow(train)
+
+cat(paste0("Train set has ", train.rdcd.size, " records (",
+		   format(100*train.rdcd.size/train.size, digits=5),
+		   "% from full train set)", nl))
+
+train.rdcd.qts <- factor.to.quantiles(train$class, TRUE)
+col <- hcl.colors(length(train.rdcd.qts), "RedOr")
+col[which(names(train.rdcd.qts)=="normal")] <- "green"
+
+pie(train.rdcd.qts, col = col)
+```
+
+As we can see, there are few 'normals' and much more 'neptune'. There is no need to get very large amount of normals and still reasonable to get more different examples of attacks. But it makes sense to reduce number of neptunes.
+
+Speed of recognition for such PNN was about 1 record per second. My computer has processor Intel Core i7-6500U CPU, 2.50 GHz 2.59 GHz. But I wasn't apply multiprocessing or threads to paralleling computations, so only single processing unit was charged.
+
+
+### Recognition results
+
+```{r read results set}
+res <- read.csv("../data/output/KDD_testing_pnn.csv")[,-1]
+```
+
+To estimate accuracy of model I will view
+
+* ACC - accuracy itself.  
+* TP, FP, TN, FN - true-positive, false-positive, true-negative, false-negative. All types of attack abstracted into class 'attack' so that different attacks are equal. Attack presence will be recognized as 'positive' value (because purpose is to recognize attacks).  
+* ACC_bin - binary accuracy for mentioned abstraction.  
+* Precision and recall.  
+* F1 - F1-measure.  
+* Partial accuracies for each type of attacks.  
+
+Accuracy measures:
+
+```{r accuracy measures}
+res$expected.bin <- ifelse(res$expected=='normal', 'normal', 'attack')
+res$recognized.bin <- ifelse(res$recognized=='normal', 'normal', 'attack')
+
+res.size <- nrow(res)
+
+# Accuracy
+acc <- sum(res$expected==res$recognized)/res.size
+
+# TP, FP, TN, FN
+tp <- sum((res$expected.bin=='attack') & (res$recognized.bin=='attack'))
+fp <- sum((res$expected.bin=='attack') & (res$recognized.bin=='normal'))
+tn <- sum((res$expected.bin=='normal') & (res$recognized.bin=='normal'))
+fn <- sum((res$expected.bin=='normal') & (res$recognized.bin=='attack'))
+
+acc_bin <- (tp+tn)/res.size
+
+#Precision and recall
+precision <- tp/(tp+fp)
+recall <- tp/(tp+fn)
+
+# F1-measure
+f1 <- 2*precision*recall/(precision+recall)
+
+cat("ACC = ", acc, nl,
+	"ACC_bin = ", acc_bin, nl,
+	sep = '')
+
+pie(c(tp, fp, tn, fn), 
+	labels = c("TP", "FP", "TN", "FN"),
+	col = c("#009900", "#CC0000", "#66FF66", "#FF6666"),
+	main = "true/false - positive/negative distribution")
+
+cat("Precision is ", precision, nl,
+	"Recall is ", recall, nl,
+	"F1 = ", f1, nl,
+	sep='')
+```
+
+Result impress at first time but let's dig in deep. 
+Accuracy for all classes is less than 0.5, which is slightly bad. 
+I expected that issue to be due to confusing number of attack types. 
+So I abstracted all attacks into single class to see how model 
+differs normals and attacks.
+
+On pie diagram we can see that less than quarter of records recognized incorrectly.
+But there is some problem: to much false-negatives.
+I meant that many (about third part) normal connections recognized as attacks,
+so this model seems to be barking on many normal connections.
+I guess less than quarter of normals is to low number.
+I should try something like 50% of normals with 50% of attacks.
+
+Precision and recall have values close to 1.
+That's good, but still they don't include false-negatives,
+which appeared to be important.
+
+F1-measure also close to 1, which is good too, but it inherits mentioned problem.
+
+Partial accuracies for each type of attacks - parts of correctly recognized 
+attacks of each type.
+
+```{r attacks partial accuracies}
+types <- unique(res$expected[res$expected!='normal'])
+
+acc_part <- data.frame(character(), numeric(), numeric())
+for (type in types){
+	indx <- which(res$expected==type)
+	attacks <- res[indx, 1:2]
+	
+	amount <- nrow(attacks)
+	
+	att.acc <- sum(attacks$expected==attacks$recognized)/amount
+	acc_part <- rbind(acc_part, list(type, att.acc, amount))
+}
+names(acc_part) <- c("type", "accuracy", "amount")
+rm(type, indx, attacks, amount, att.acc)
+
+acc_part <- acc_part[order(acc_part$amount, decreasing=TRUE),]
+print(acc_part)
+```
+
+There many attacks are not recognized at all and some recognized badly.
+Let's see attacks with accuracy less than 0.8 to try found out some patterns.
+
+```{r badly recognized attacks partial accuracies}
+print(acc_part[acc_part$accuracy<0.8,])
+```
+
+We can pick out 3 groups of attacks:
+
+* Badly recognized attacks with not small amount (>100).
+neptune, guess_passwd, warezmaster and satan
+* Not recognized attacks with not small amount. 
+mscan, apache2, processtable, snmpguess, saint,
+mailbomb, mailbomb, snmpgetattack, httptunnel
+* Not recognized or badly recognized attacks with small amount (<100).
+All the rest
+
+
+### Model improvements
+
+We can form 4 heuristic factors from mentioned attacks groups and 
+group of attacks with good accuracy, which was excluded. 
+This factors have to be named. I propose to replace single PNN with **PNNs tree**.
+
+At first we have to factorize data-set so that it have factors including some
+types of alike attacks. It can be more scientific way to do so, for example,
+we can try to find tendencies for all attack types to be often mistaken with
+some particular type and add these types into single group. 
+Such mistakes occur when two types has slightly similar signatures,
+so they can be taken into factor.
+
+After groups ready, we have to train PNNs.
+
+**First-level PNN** will recognize whether connection normal or attack. 
+It must be trained on about equal number of normals and attacks. 
+I propose to get something like 500 normals and 1500 attacks including each type.
+And attacks amounts have to be not less than 30 if available.
+If connection is attack, than record transfers to second-level PNN.
+
+**Second-level PNN** recognizes which group of attacks refers to current attack.
+It should have about 2000 neurons in pattern layer. 
+In case we have 4 groups it would be nice to take 500 records from each group 
+into train set. Each signature must be associated with it's group name.
+Also train set must contain each type of attacks.
+After recognition of group record transfers to according third-level PNN.
+
+**Third-level PNN** recognizes which specific attack takes place for given record.
+In the PNNs tree there are equal number of third-level PNNs to number of groups.
+Each third-level PNN should be trained on set of size from 1000 to 5000, 
+depending on group size. Train sets for each PNN must have balanced amounts of
+records of each attack type in according group.
+
+It would be nice if almost all neurons in all PNNs are different.
+
+So such model will have 6 trained PNNs for 4 groups from example.
+Also such PNNs should have much less summary amount of neurons in pattern layers.
+I guess we can heavily reduce computations on this basis. 
+It might increase accuracy, speed up recognition, 
+but probably will take some more memory.
+
+
+### Addition 1 -- summary of KDD{#addition1}
+
+```{r NLS summary}
+summary(kdd)
+```
